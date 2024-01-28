@@ -1,6 +1,7 @@
-import requests, re
+import requests, re, argparse
 from datetime import datetime
 from pathlib import Path
+from dotenv import dotenv_values
 
 class TenttiArkisto:
     def __init__(self, base_url: str, todo_path: str, done_path: str) -> None:
@@ -15,22 +16,31 @@ class TenttiArkisto:
     Find all PDF files and create an exam object from each of them.
     '''
     def findFiles(self) -> list[dict]:
+        if not len(self.courses):
+            self.fetchOptions()
+
         files = []
         for path in Path(self.todo_path).glob("*.pdf"):
+            if path.stem.count("_") != 2:
+                raise Exception(f"Invalid file name: '{path}'")
+
             course, date_str, description = path.stem.split("_")
-            if description in ["tentamen", "sluttentamen"] or "mellanförhör" in description or "deltentamen" in description:
+            if description in ["tentamen", "sluttentamen"] or re.findall(r"mellanförhör-\d", description) or re.findall(r"deltentamen-\d", description):
                 language = "swedish"
-            elif description == "exam" or "midterm" in description:
+            elif description in ["exam", "final-exam"] or re.findall(r"medterm-\d", description):
                 language = "english"
-            elif description == "tentti" or "välikoe" in description:
+            elif description in ["tentti", "välikoe", "kesätentti"] or re.findall(r"välikoe-\d", description) or re.findall(r"osakoe-\d\w?", description):
                 language = "finnish"
             else:
-                raise Exception(f"Invalid description in file {path}")
+                raise Exception(f"Invalid description: '{path}'")
 
             try:
                 date = datetime.strptime(date_str, "%Y%m%d")
             except ValueError:
-                raise Exception(f"Invalid description in file {path}")
+                raise Exception(f"Invalid date: '{path}'")
+
+            if course not in self.courses:
+                raise Exception(f"Invalid course name: '{path}'")
 
             files.append({
                 "course": self.courses[course],
@@ -106,21 +116,12 @@ class TenttiArkisto:
     '''
     Start the process of adding all exams to tenttiarkisto. Specify the optional argument if you want to restrict the amount of exams, for testing purposes for example.
     '''
-    def addAllExams(self, n = None) -> None:
+    def addExams(self, exams) -> None:
         URL = self.base_url + "exams/add/"
-        FILES = self.findFiles()
-
-        if not len(self.courses):
-            self.fetchOptions()
 
         token = None
-        for i, exam in enumerate(FILES):
-            if n != None and i >= n:
-                print("skipping", exam)
-                continue
-
+        for exam in exams:
             print(exam)
-
             if not token:
                 token = self.getCSRFToken(URL)
             ok, token = self.__addExam(exam, token)
@@ -153,19 +154,17 @@ class TenttiArkisto:
 
 
 if __name__ == "__main__":
-    URL = ""
-    USERNAME = ""
-    PASSWORD = ""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-x", "--execute", action="store_true", help="Upload the exams")
+    args = parser.parse_args()
 
+    env = dotenv_values()
+    URL = env["URL"]
 
     if not URL:
         raise Exception("Give a valid URL to tenttiarkisto")
 
-    ta = TenttiArkisto(URL, "./todo", "./done")
-
-    if USERNAME and PASSWORD:
-        ta.login(USERNAME, PASSWORD)
-
+    ta = TenttiArkisto(URL, env["TODO_DIR"] or "./todo", env["DONE_DIR"] or "./done")
     ta.fetchOptions({
         "ms-a0102": "2253",
         "ene-59.4101": "1960",
@@ -178,4 +177,17 @@ if __name__ == "__main__":
         "s-17.3020": "1400",
         "tfy-0.3252": "735",
     })
-    ta.addAllExams()
+
+    exams = ta.findFiles()
+
+    USERNAME = env["USERNAME"]
+    PASSWORD = env["PASSWORD"]
+    if args.execute and USERNAME and PASSWORD:
+        ta.login(USERNAME, PASSWORD)
+        print("Adding exams")
+        ta.addExams(exams)
+        print("Done adding exams")
+    else:
+        for exam in exams:
+            print(exam)
+        print("Use flag '-x' and provide login information to upload exams")
