@@ -25,11 +25,11 @@ class TenttiArkisto:
                 raise Exception(f"Invalid file name: '{path}'")
 
             course, date_str, description = path.stem.split("_")
-            if description in ["tentamen", "sluttentamen"] or re.findall(r"mellanförhör-\d", description) or re.findall(r"deltentamen-\d", description):
+            if "tentamen" in description or "förhör" in description or "prov" in description:
                 language = "swedish"
-            elif description in ["exam", "final-exam"] or re.findall(r"medterm-\d", description):
+            elif "exam" in description:
                 language = "english"
-            elif description in ["tentti", "välikoe", "kesätentti"] or re.findall(r"välikoe-\d", description) or re.findall(r"osakoe-\d\w?", description):
+            elif "tentti" in description or "koe" in description:
                 language = "finnish"
             else:
                 raise Exception(f"Invalid description: '{path}'")
